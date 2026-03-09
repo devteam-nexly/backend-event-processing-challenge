@@ -1,0 +1,13 @@
+{
+  "name": "@nexly-challenge/scripts",
+  "version": "1.0.0",
+  "description": "Utility scripts for the Nexly backend challenge",
+  "scripts": {
+    "generate-events": "tsx generate-events.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
