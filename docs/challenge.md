@@ -18,7 +18,7 @@ The endpoint must:
 
 - Accept the event payload described below
 - Validate the payload
-- Persist the event to PostgreSQL with status `pending`
+- Persist the received event to PostgreSQL
 - Enqueue it for asynchronous processing
 - Return `202 Accepted` immediately — do not wait for processing
 
@@ -158,7 +158,7 @@ cd scripts && npm install && npx tsx generate-events.ts
 ## Constraints
 
 - Do not change the mock integrations behavior
-- Do not change the database init schema (you may add tables)
+- Do not change the database init schema (you may add tables and columns)
 - You may add any npm packages you need
 - You may use any queue mechanism (in-process, Redis, PostgreSQL SKIP LOCKED, etc.)
 - TypeScript strict mode must remain enabled
