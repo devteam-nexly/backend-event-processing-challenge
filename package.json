@@ -1,0 +1,11 @@
+{
+  "name": "@nexly-challenge/root",
+  "private": true,
+  "scripts": {
+    "generate-events": "tsx scripts/generate-events.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

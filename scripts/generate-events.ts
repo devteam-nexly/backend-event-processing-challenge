@@ -6,15 +6,36 @@
  * Useful for load testing, concurrency validation, and retry behavior analysis.
  *
  * Usage:
- *   npx tsx scripts/generate-events.ts
- *   TOTAL_EVENTS=500 CONCURRENCY=20 npx tsx scripts/generate-events.ts
+ *   npm run generate-events
+ *   npm run generate-events -- --count 10000
+ *   npm run generate-events -- --count 5000 --concurrency 50
+ *
+ * Configuration priority: CLI args > environment variables > defaults
  */
 
 import { randomUUID } from 'crypto';
 
+function parseArgs(): { count: number; concurrency: number } {
+  const args = process.argv.slice(2);
+  let count: number | undefined;
+  let concurrency: number | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--count' && args[i + 1] !== undefined) {
+      count = Number(args[++i]);
+    } else if (args[i] === '--concurrency' && args[i + 1] !== undefined) {
+      concurrency = Number(args[++i]);
+    }
+  }
+
+  return {
+    count: count ?? Number(process.env.TOTAL_EVENTS ?? 10_000),
+    concurrency: concurrency ?? Number(process.env.CONCURRENCY ?? 20),
+  };
+}
+
+const { count: TOTAL_EVENTS, concurrency: CONCURRENCY } = parseArgs();
 const API_URL = process.env.API_URL ?? 'http://localhost:3000';
-const TOTAL_EVENTS = Number(process.env.TOTAL_EVENTS ?? 10_000);
-const CONCURRENCY = Number(process.env.CONCURRENCY ?? 50);
 const ENDPOINT = `${API_URL}/events`;
 
 const EVENT_TYPES = [
@@ -84,9 +105,9 @@ async function runBatch(events: EventPayload[]): Promise<{ ok: number; failed: n
 
 async function main(): Promise<void> {
   console.log(`\nNexly Challenge — Event Generator`);
-  console.log(`  Target : ${ENDPOINT}`);
-  console.log(`  Total  : ${TOTAL_EVENTS.toLocaleString()} events`);
-  console.log(`  Concurrency: ${CONCURRENCY} simultaneous requests\n`);
+  console.log(`  Target      : ${ENDPOINT}`);
+  console.log(`  Total       : ${TOTAL_EVENTS.toLocaleString()} events`);
+  console.log(`  Concurrency : ${CONCURRENCY} simultaneous requests\n`);
 
   let totalOk = 0;
   let totalFailed = 0;

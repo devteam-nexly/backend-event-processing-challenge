@@ -112,26 +112,36 @@ POST http://localhost:4000/notifications
 
 Located at `scripts/generate-events.ts`, this script sends synthetic events to the API for load testing.
 
+### Setup
+
+Install root dependencies once:
+
+```bash
+npm install
+```
+
 ### Usage
 
 ```bash
-cd scripts
-npm install
+# Default: 10,000 events, 20 concurrent
+npm run generate-events
 
-# Default: 10,000 events, 50 concurrent
-npx tsx generate-events.ts
+# Custom count
+npm run generate-events -- --count 1000
 
-# Custom configuration
-TOTAL_EVENTS=1000 CONCURRENCY=20 API_URL=http://localhost:3000 npx tsx generate-events.ts
+# Custom count and concurrency
+npm run generate-events -- --count 5000 --concurrency 50
 ```
 
-### Environment variables
+### Configuration
 
-| Variable       | Default                  | Description                   |
-|----------------|--------------------------|-------------------------------|
-| `API_URL`      | `http://localhost:3000`  | Base URL of the API           |
-| `TOTAL_EVENTS` | `10000`                  | Number of events to send      |
-| `CONCURRENCY`  | `50`                     | Simultaneous requests         |
+CLI arguments take priority over environment variables, which take priority over defaults.
+
+| CLI argument    | Env variable   | Default | Description                  |
+|-----------------|----------------|---------|------------------------------|
+| `--count`       | `TOTAL_EVENTS` | `10000` | Number of events to send     |
+| `--concurrency` | `CONCURRENCY`  | `20`    | Simultaneous requests        |
+| —               | `API_URL`      | `http://localhost:3000` | Base URL of the API |
 
 ---
 
