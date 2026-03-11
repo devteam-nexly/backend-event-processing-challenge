@@ -12,7 +12,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,6 +32,21 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  worker:
+    build:
+      context: ./apps/worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/events_db
+      MOCK_INTEGRATIONS_URL: http://mock-integrations:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./apps/worker/logs:/app/logs
 
   mock-integrations:
     build:
