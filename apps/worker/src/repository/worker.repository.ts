@@ -67,6 +67,19 @@ export const eventRepository = {
         );
     },
 
+    async markFailedWithRetry(id: string, error: string, retryAt: Date) {
+        await pool.query(
+            `
+            UPDATE events
+            SET retry_count = retry_count + 1,
+                status = 'failed',
+                last_error = $1,
+                next_retry_at = $2
+            WHERE id = $3`,
+            [error, retryAt, id]
+        );
+    },
+
     async moveToDLQ(event: any, error: any) {
         const client = await pool.connect();
 

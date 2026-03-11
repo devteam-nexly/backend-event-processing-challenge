@@ -14,7 +14,14 @@ export const eventService = {
                 await eventRepository.markProcessed(event.id);
                 logger.info({ event_id: event.id, action: 'processed' });
             } catch (err: any) {
-                if (event.retry_count + 1 >= event.max_retries) {
+                if (err.response?.status === 429) {
+                    const retryAfter = parseInt(err.response?.headers?.['retry-after'] ?? '60', 10);
+
+                    logger.warn({ event_id: event.id, action: 'rate_limit', retry_after: retryAfter, message: err.message });
+
+                    event.retry_at = new Date(Date.now() + retryAfter * 1000);
+                    await eventRepository.markFailedWithRetry(event.id, err?.message || 'Rate limited', event.retry_at);
+                } else if (event.retry_count + 1 >= event.max_retries) {
                     logger.error({ event_id: event.id, action: 'move_to_dlq' });
                     await eventRepository.moveToDLQ(event, err);
                 } else {
