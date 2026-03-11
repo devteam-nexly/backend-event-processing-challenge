@@ -1,31 +1,22 @@
 import 'dotenv/config';
-import pool from "../../config/database.config";
+import { EventsRepository } from './events.repository';
 import { EventBody } from "./events.schema";
 
 export class EventsService {
+    private eventsRepository: EventsRepository = new EventsRepository();
+
     async createEvent(data: EventBody): Promise<void> {
-        await pool.query(
-            `
-            INSERT INTO events (event_id, tenant_id, type, payload, status, retry_count)
-            VALUES ($1,$2,$3,$4,'pending',0)
-            ON CONFLICT (event_id) DO NOTHING
-            `,
-            [data.event_id, data.tenant_id, data.type, data.payload]
-        );
+        this.eventsRepository.createEvent(data);
         return;
     }
 
     async getDlqEvents(): Promise<any[]> {
-        const result = await pool.query('SELECT * FROM dlq_events;');
+        const result = await this.eventsRepository.getDlqEvents();
         return result.rows;
     }
 
     async getMetrics(): Promise<any> {
-        const result = await pool.query(`
-            SELECT status, count(*) as count
-            FROM events
-            GROUP BY status
-        `);
+        const result = await this.eventsRepository.getMetrics();
         return result.rows;
     }
 }
