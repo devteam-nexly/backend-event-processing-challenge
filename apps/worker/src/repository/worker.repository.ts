@@ -13,7 +13,7 @@ export const eventRepository = {
                 `
                 SELECT *
                 FROM events
-                WHERE status = 'pending' or (status = 'failed' AND retry_count < max_retries AND next_retry_at <= NOW())
+                WHERE status = 'pending' or (status = 'failed' AND next_retry_at <= NOW())
                 ORDER BY created_at
                 LIMIT $1
                 FOR UPDATE SKIP LOCKED`,
@@ -75,15 +75,15 @@ export const eventRepository = {
             await client.query(
                 `
                 INSERT INTO dlq_events
-                (event_id, type, payload, failure_reason, retry_count)
-
-                VALUES ($1,$2,$3,$4,$5)`,
+                (original_event_id, tenant_id, type, payload, retry_count, last_error)
+                VALUES ($1,$2,$3,$4,$5,$6)`,
                 [
                     event.id,
+                    event.tenant_id,
                     event.type,
                     event.payload,
-                    error.message,
-                    event.retry_count
+                    event.retry_count,
+                    error.message
                 ]
             )
 

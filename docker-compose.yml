@@ -45,6 +45,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./apps/worker/logs:/app/logs
 
   mock-integrations:
     build:

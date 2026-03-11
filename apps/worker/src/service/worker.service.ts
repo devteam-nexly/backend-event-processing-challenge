@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { logger } from '../logger';
 import { eventRepository } from '../repository/worker.repository';
 
 const BASE_URL = process.env.MOCK_INTEGRATIONS_URL;
@@ -11,14 +12,13 @@ export const eventService = {
             try {
                 await this.processEvent(event);
                 await eventRepository.markProcessed(event.id);
-                console.log(`Event ${event.id} processed successfully`);
+                logger.info({ event_id: event.id, action: 'processed' });
             } catch (err: any) {
-                console.error('Processing failed', err);
                 if (event.retry_count + 1 >= event.max_retries) {
-                    console.error(`Event ${event.id} has reached max retries. Marking as failed.`);
+                    logger.error({ event_id: event.id, action: 'move_to_dlq' });
                     await eventRepository.moveToDLQ(event, err);
                 } else {
-                    console.error(`Event ${event.id} will be retried in ${event.next_retry_at}`);
+                    logger.warn({ event_id: event.id, action: 'mark_failed', retry_count: event.retry_count + 1, message: err.message });
                     await eventRepository.markFailed(event.id, err?.message || 'Unknown error');
                 }
             }

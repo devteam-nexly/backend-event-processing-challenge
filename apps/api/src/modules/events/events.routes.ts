@@ -5,15 +5,16 @@ import { EventsService } from './events.service';
 export async function eventRoutes(app: FastifyInstance): Promise<void> {
     const eventsService = new EventsService();
 
-    app.get('/', async (_request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-        await reply.send({ status: 'ok' });
-    });
-
     app.post(
         '/',
         { schema: { body: EventBodySchema } },
         async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-            const body = request.body;
+            const body: any = request.body;
+            app.log.info({
+                event_id: body.event_id,
+                tenant_id: body.tenant_id,
+                type: body.type
+            }, 'Event received');
             await eventsService.createEvent(body as EventBody);
             await reply.status(202).send({ accepted: true });
         }

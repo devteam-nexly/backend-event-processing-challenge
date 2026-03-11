@@ -25,6 +25,6 @@ CREATE TABLE IF NOT EXISTS dlq_events (
     type TEXT NOT NULL,
     payload JSONB NOT NULL,
     retry_count INT NOT NULL,
-    failure_reason TEXT,
+    last_error TEXT,
     moved_to_dlq_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

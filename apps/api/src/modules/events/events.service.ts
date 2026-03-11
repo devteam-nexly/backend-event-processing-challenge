@@ -4,7 +4,6 @@ import { EventBody } from "./events.schema";
 
 export class EventsService {
     async createEvent(data: EventBody): Promise<void> {
-        console.log(process.env.DATABASE_URL);
         await pool.query(
             `
             INSERT INTO events (event_id, tenant_id, type, payload, status, retry_count)
