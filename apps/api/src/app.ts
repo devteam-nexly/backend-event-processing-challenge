@@ -1,5 +1,6 @@
-import Fastify, { FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
+import Fastify, { FastifyInstance } from 'fastify';
+import { eventRoutes } from './modules/events/events.routes';
 import { healthRoutes } from './routes/health';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -17,6 +18,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Routes
   await app.register(healthRoutes, { prefix: '/health' });
+  await app.register(eventRoutes, { prefix: '/events' });
 
   // TODO: candidates must implement event ingestion and processing routes
 
