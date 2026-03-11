@@ -14,4 +14,18 @@ export class EventsService {
         );
         return;
     }
+
+    async getDlqEvents(): Promise<any[]> {
+        const result = await pool.query('SELECT * FROM dlq_events;');
+        return result.rows;
+    }
+
+    async getMetrics(): Promise<any> {
+        const result = await pool.query(`
+            SELECT status, count(*) as count
+            FROM events
+            GROUP BY status
+        `);
+        return result.rows;
+    }
 }

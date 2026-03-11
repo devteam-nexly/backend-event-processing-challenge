@@ -19,4 +19,14 @@ export async function eventRoutes(app: FastifyInstance): Promise<void> {
             await reply.status(202).send({ accepted: true });
         }
     );
+
+    app.get('/dlq', async (_request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+        const dlqEvents = await eventsService.getDlqEvents();
+        await reply.send(dlqEvents);
+    });
+
+    app.get('/metrics', async (_request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+        const metrics = await eventsService.getMetrics();
+        await reply.send(metrics);
+    });
 }
