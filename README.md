@@ -1,8 +1,8 @@
 # Backend Event Processor Challenge
 
-A base repository for the Nexly backend engineering technical challenge.
+Implementation of the solution for Nexly's asynchronous event processing technical challenge.
 
-> **Candidates**: fork this repository and implement the challenge described in [`docs/challenge.md`](./docs/challenge.md).
+The original requirements are available in [docs/challenge.md](./docs/challenge.md), and the architecture decisions are documented in [SOLUTION.md](./SOLUTION.md).
 
 ---
 
@@ -11,166 +11,155 @@ A base repository for the Nexly backend engineering technical challenge.
 | Layer        | Technology               |
 |--------------|--------------------------|
 | Runtime      | Node.js 22               |
-| Language     | TypeScript (strict)      |
-| Framework    | Fastify 4                |
+| Language     | TypeScript strict        |
+| API          | Fastify 4                |
 | Database     | PostgreSQL 16            |
-| Container    | Docker + Docker Compose  |
+| Queue        | PostgreSQL + SKIP LOCKED |
+| Containers   | Docker + Docker Compose  |
+
+---
+
+## What Was Implemented
+
+- `POST /events` with payload validation and `event_id` deduplication
+- event persistence in PostgreSQL
+- asynchronous background worker consuming pending events
+- event type routing to the mock integrations
+- retries with exponential backoff
+- `Retry-After` support for `429` responses
+- DLQ persisted in a dedicated table
+- `GET /dlq` to inspect exhausted events
+- `GET /metrics` with processing counters
+- structured logs with the Fastify logger
+- test coverage for validation, use cases, and worker behavior
+
+### Endpoints
+
+| Method | Route      | Description |
+|--------|------------|-----------|
+| `GET`  | `/health`  | API health check |
+| `POST` | `/events`  | Receives, validates, and enqueues events |
+| `GET`  | `/metrics` | Returns `{ processed, failed, dlq, pending }` |
+| `GET`  | `/dlq`     | Lists events sent to the DLQ |
+
+---
+
+## Solution Flow
+
+1. The API receives an event through `POST /events`.
+2. The payload is validated against the accepted event types.
+3. The event is persisted with initial status `pending`.
+4. A background worker polls the queue using PostgreSQL.
+5. The worker calls external integrations based on the event type.
+6. Transient failures are retried with exponential backoff.
+7. When the retry limit is reached, the event is moved to the DLQ.
+
+### Type-Based Routing
+
+| Event type    | Destination |
+|---------------|---------|
+| `order.*`     | `/billing` + `/crm` |
+| `payment.*`   | `/billing` |
+| `customer.*`  | `/crm` + `/notifications` |
 
 ---
 
 ## Project Structure
 
-```
+```text
 .
 ├── apps/
-│   └── api/                    # Fastify API skeleton
-│       └── src/
-│           ├── server.ts       # Entry point
-│           ├── app.ts          # Fastify instance and plugin registration
-│           └── routes/
-│               └── health.ts   # GET /health (implemented)
-│
-├── mock-integrations/          # Simulates unstable external services
-│   └── src/
-│       └── server.ts           # POST /billing, /crm, /notifications
-│
+│   └── api/
+│       ├── postgres/init.sql
+│       ├── src/
+│       │   ├── app.ts
+│       │   ├── server.ts
+│       │   ├── core/
+│       │   │   ├── database/
+│       │   │   ├── errors/
+│       │   │   ├── interfaces/
+│       │   │   └── events.ts
+│       │   └── infra/
+│       │       ├── routes/
+│       │       ├── usecases/
+│       │       └── worker/
+│       └── test/
+├── mock-integrations/
 ├── scripts/
-│   └── generate-events.ts      # Sends 10k synthetic events to the API
-│
-├── infra/
-│   └── postgres/
-│       └── init.sql            # Initial DB schema
-│
 ├── docs/
-│   └── challenge.md            # Challenge instructions
-│
+├── SOLUTION.md
 └── docker-compose.yml
 ```
 
 ---
 
-## Getting Started
+## How to Run
 
-### Prerequisites
-
-- Docker and Docker Compose installed
-- Node.js 22+ (for running scripts locally)
-
-### Run the environment
+### Start Everything with Docker
 
 ```bash
 cp .env.example .env
-docker compose up
+docker compose up --build
 ```
 
-This starts:
+Exposed services:
 
-| Service            | Port  | Description                      |
-|--------------------|-------|----------------------------------|
-| `api`              | 3000  | Fastify API                      |
-| `mock-integrations`| 4000  | Unstable external services mock  |
-| `postgres`         | 5432  | PostgreSQL database              |
+| Service             | Port | Description |
+|---------------------|------|-------------|
+| `api`               | 3000 | Fastify API |
+| `mock-integrations` | 4000 | Simulated unstable integrations |
+| `postgres`          | 5432 | PostgreSQL database |
 
-### Verify everything is running
+### Quick Verification
 
 ```bash
 curl http://localhost:3000/health
-# {"status":"ok"}
-
 curl http://localhost:4000/health
-# {"status":"ok"}
+curl http://localhost:3000/metrics
+curl http://localhost:3000/dlq
 ```
 
----
-
-## Mock Integrations
-
-The `mock-integrations` service simulates three external systems: **billing**, **crm**, and **notifications**.
-
-All three endpoints share the same behavior:
-
-| Behavior          | Probability | Description                            |
-|-------------------|-------------|----------------------------------------|
-| Success           | ~77%        | Returns `200 OK` after a random delay  |
-| Rate limited      | ~8%         | Returns `429` with `Retry-After: 5`    |
-| Server error      | ~15%        | Returns `500 Internal Server Error`    |
-| Latency           | Always      | Random delay between 0–3 seconds       |
-
-Your implementation must handle all of these cases.
-
-### Endpoints
-
-```
-POST http://localhost:4000/billing
-POST http://localhost:4000/crm
-POST http://localhost:4000/notifications
-```
-
----
-
-## Event Generator
-
-Located at `scripts/generate-events.ts`, this script sends synthetic events to the API for load testing.
-
-### Setup
-
-Install root dependencies once:
+### Sample Event
 
 ```bash
-npm install
+curl -X POST http://localhost:3000/events \
+	-H "Content-Type: application/json" \
+	-d '{
+		"event_id": "550e8400-e29b-41d4-a716-446655440000",
+		"tenant_id": "tenant_a",
+		"type": "order.created",
+		"payload": { "orderId": "ORD-001", "value": 199.90 }
+	}'
 ```
 
-### Usage
+Expected response:
 
-```bash
-# Default: 10,000 events, 20 concurrent
-npm run generate-events
-
-# Custom count
-npm run generate-events -- --count 1000
-
-# Custom count and concurrency
-npm run generate-events -- --count 5000 --concurrency 50
+```json
+{ "status": "accepted" }
 ```
-
-### Configuration
-
-CLI arguments take priority over environment variables, which take priority over defaults.
-
-| CLI argument    | Env variable   | Default | Description                  |
-|-----------------|----------------|---------|------------------------------|
-| `--count`       | `TOTAL_EVENTS` | `10000` | Number of events to send     |
-| `--concurrency` | `CONCURRENCY`  | `20`    | Simultaneous requests        |
-| —               | `API_URL`      | `http://localhost:3000` | Base URL of the API |
 
 ---
 
-## Challenge
+## Local Development
 
-Read [`docs/challenge.md`](./docs/challenge.md) for the full requirements.
-
-In summary, you must implement:
-
-1. `POST /events` — event ingestion endpoint
-2. An asynchronous event processor
-3. Retry logic with exponential backoff
-4. Dead Letter Queue (DLQ) for unprocessable events
-5. `GET /metrics` and `GET /dlq` endpoints
-
----
-
-## Development
-
-### Running the API locally (without Docker)
+### API
 
 ```bash
 cd apps/api
 npm install
-cp ../../.env.example .env
+cp .env.example .env
 npm run dev
 ```
 
-### Running mock integrations locally
+### API with Debugging
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+```
+
+This exposes port `9229` so you can attach a debugger to the API container.
+
+### Mock integrations
 
 ```bash
 cd mock-integrations
@@ -178,13 +167,51 @@ npm install
 npm run dev
 ```
 
-### Type checking
+---
+
+## Tests and Quality
+
+### API
 
 ```bash
-cd apps/api && npm run typecheck
-cd mock-integrations && npm run typecheck
+cd apps/api
+npm test
+npm run test:coverage
+npm run typecheck
+npm run lint
+```
+
+### Event Generator
+
+From the project root:
+
+```bash
+npm install
+npm run generate-events
+npm run generate-events -- --count 5000 --concurrency 50
 ```
 
 ---
 
-*Nexly Engineering Team*
+## Mock Integrations
+
+The integrations simulate unstable behavior to exercise worker resilience:
+
+- success with random latency
+- `500` errors
+- rate limiting with `429` and a `Retry-After` header
+
+Available routes:
+
+```text
+POST http://localhost:4000/billing
+POST http://localhost:4000/crm
+POST http://localhost:4000/notifications
+```
+
+---
+
+## References
+
+- [docs/challenge.md](./docs/challenge.md)
+- [SOLUTION.md](./SOLUTION.md)

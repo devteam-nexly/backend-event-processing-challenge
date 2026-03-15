@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+/// <reference types="node" />
 /**
  * Event generator script
  *
@@ -9,32 +10,49 @@
  *   npm run generate-events
  *   npm run generate-events -- --count 10000
  *   npm run generate-events -- --count 5000 --concurrency 50
+ *   npm run generate-events -- --count 100 --guaranteed-mix
  *
  * Configuration priority: CLI args > environment variables > defaults
  */
 
 import { randomUUID } from 'crypto';
 
-function parseArgs(): { count: number; concurrency: number } {
+type ForcedOutcome = "success" | "transient_failure" | "dlq";
+
+interface ScriptOptions {
+  count: number;
+  concurrency: number;
+  guaranteedMix: boolean;
+}
+
+function parseArgs(): ScriptOptions {
   const args = process.argv.slice(2);
   let count: number | undefined;
   let concurrency: number | undefined;
+  let guaranteedMix = false;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--count' && args[i + 1] !== undefined) {
+    if (args[i] === "--count" && args[i + 1] !== undefined) {
       count = Number(args[++i]);
-    } else if (args[i] === '--concurrency' && args[i + 1] !== undefined) {
+    } else if (args[i] === "--concurrency" && args[i + 1] !== undefined) {
       concurrency = Number(args[++i]);
+    } else if (args[i] === "--guaranteed-mix") {
+      guaranteedMix = true;
     }
   }
 
   return {
     count: count ?? Number(process.env.TOTAL_EVENTS ?? 10_000),
     concurrency: concurrency ?? Number(process.env.CONCURRENCY ?? 20),
+    guaranteedMix,
   };
 }
 
-const { count: TOTAL_EVENTS, concurrency: CONCURRENCY } = parseArgs();
+const {
+  count: TOTAL_EVENTS,
+  concurrency: CONCURRENCY,
+  guaranteedMix: GUARANTEED_MIX,
+} = parseArgs();
 const API_URL = process.env.API_URL ?? 'http://localhost:3000';
 const ENDPOINT = `${API_URL}/events`;
 
@@ -64,7 +82,7 @@ function randomItem<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)] as T;
 }
 
-function buildEvent(): EventPayload {
+function buildEvent(forcedOutcome?: ForcedOutcome): EventPayload {
   return {
     event_id: randomUUID(),
     tenant_id: randomItem(TENANT_IDS),
@@ -72,10 +90,45 @@ function buildEvent(): EventPayload {
     payload: {
       ref: randomUUID(),
       value: parseFloat((Math.random() * 1000).toFixed(2)),
-      currency: 'BRL',
+      currency: "BRL",
       generatedAt: new Date().toISOString(),
+      ...(forcedOutcome ? { test_outcome: forcedOutcome } : {}),
     },
   };
+}
+
+function buildGuaranteedMixPlan(total: number): ForcedOutcome[] {
+  if (total < 3) {
+    return Array.from({ length: total }, () => "success");
+  }
+
+  const successCount = Math.max(1, Math.floor(total * 0.6));
+  const transientCount = Math.max(1, Math.floor(total * 0.25));
+  const dlqCount = Math.max(1, total - successCount - transientCount);
+
+  const plan: ForcedOutcome[] = [
+    ...Array.from({ length: successCount }, () => "success" as const),
+    ...Array.from(
+      { length: transientCount },
+      () => "transient_failure" as const,
+    ),
+    ...Array.from({ length: dlqCount }, () => "dlq" as const),
+  ];
+
+  while (plan.length > total) {
+    plan.pop();
+  }
+
+  while (plan.length < total) {
+    plan.push("success");
+  }
+
+  for (let i = plan.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [plan[i], plan[j]] = [plan[j], plan[i]];
+  }
+
+  return plan;
 }
 
 async function sendEvent(event: EventPayload): Promise<{ ok: boolean; status: number }> {
@@ -109,13 +162,33 @@ async function main(): Promise<void> {
   console.log(`  Total       : ${TOTAL_EVENTS.toLocaleString()} events`);
   console.log(`  Concurrency : ${CONCURRENCY} simultaneous requests\n`);
 
+  const forcedPlan = GUARANTEED_MIX
+    ? buildGuaranteedMixPlan(TOTAL_EVENTS)
+    : null;
+  if (forcedPlan) {
+    const successCount = forcedPlan.filter((item) => item === "success").length;
+    const transientCount = forcedPlan.filter(
+      (item) => item === "transient_failure",
+    ).length;
+    const dlqCount = forcedPlan.filter((item) => item === "dlq").length;
+
+    console.log("  Guaranteed mix enabled:");
+    console.log(`    success            : ${successCount}`);
+    console.log(`    transient_failure  : ${transientCount}`);
+    console.log(`    dlq                : ${dlqCount}\n`);
+  }
+
   let totalOk = 0;
   let totalFailed = 0;
   const startTime = Date.now();
 
   for (let offset = 0; offset < TOTAL_EVENTS; offset += CONCURRENCY) {
     const batchSize = Math.min(CONCURRENCY, TOTAL_EVENTS - offset);
-    const batch = Array.from({ length: batchSize }, buildEvent);
+    const batch = forcedPlan
+      ? forcedPlan
+          .slice(offset, offset + batchSize)
+          .map((outcome) => buildEvent(outcome))
+      : Array.from({ length: batchSize }, () => buildEvent());
     const { ok, failed } = await runBatch(batch);
 
     totalOk += ok;

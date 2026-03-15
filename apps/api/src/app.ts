@@ -1,6 +1,11 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
-import { healthRoutes } from './routes/health';
+import { healthRoutes } from './infra/routes/health';
+import { createDbPool, EventsRepository } from './core/database';
+import { registerEventRoutes } from './infra/routes/events';
+import { registerDlqRoutes } from './infra/routes/dlq';
+import { registerMetricsRoutes } from './infra/routes/metrics';
+import { startEventWorker } from './infra/worker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -15,10 +20,21 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(sensible);
 
-  // Routes
-  await app.register(healthRoutes, { prefix: '/health' });
+  const dbPool = createDbPool();
+  const eventsRepository = new EventsRepository(dbPool);
+  await eventsRepository.initSchema();
 
-  // TODO: candidates must implement event ingestion and processing routes
+  const stopWorker = startEventWorker(eventsRepository, app.log);
+
+  await app.register(healthRoutes, { prefix: '/health' });
+  registerEventRoutes(app, eventsRepository);
+  registerDlqRoutes(app, eventsRepository);
+  registerMetricsRoutes(app, eventsRepository);
+
+  app.addHook('onClose', async () => {
+    stopWorker();
+    await dbPool.end();
+  });
 
   return app;
 }

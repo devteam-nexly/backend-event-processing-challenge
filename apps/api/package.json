@@ -5,8 +5,12 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:debug": "NODE_OPTIONS=\"--inspect=0.0.0.0:9229 --enable-source-maps\" tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "test": "node --import tsx --test $(find test -type f -name \"*.test.ts\")",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage $(find test -type f -name \"*.test.ts\")",
+    "test:coverage:business": "npx c8 --reporter=text --include=src/core/events.ts --include=src/infra/usecases/ingest-event.usecase.ts node --import tsx --test $(find test -type f -name \"*.test.ts\")",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit"

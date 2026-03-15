@@ -10,6 +10,17 @@ const FAILURE_RATE = 0.15;       // 15% chance of HTTP 500
 const RATE_LIMIT_RATE = 0.08;    // 8% chance of HTTP 429
 const MAX_LATENCY_MS = 3000;
 
+type ForcedOutcome = "success" | "transient_failure" | "dlq";
+
+interface IntegrationRequestBody {
+  event_id?: string;
+  payload?: {
+    test_outcome?: string;
+  };
+}
+
+const transientFailureAttemptsByKey = new Map<string, number>();
+
 function randomDelay(maxMs: number): Promise<void> {
   const ms = Math.floor(Math.random() * maxMs);
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,12 +34,81 @@ function shouldRateLimit(): boolean {
   return Math.random() < RATE_LIMIT_RATE;
 }
 
+function parseForcedOutcome(body: unknown): ForcedOutcome | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+
+  const candidate = body as IntegrationRequestBody;
+  const outcome = candidate.payload?.test_outcome;
+
+  if (
+    outcome === "success" ||
+    outcome === "transient_failure" ||
+    outcome === "dlq"
+  ) {
+    return outcome;
+  }
+
+  return null;
+}
+
+function getEventId(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+
+  const candidate = body as IntegrationRequestBody;
+  return typeof candidate.event_id === "string" ? candidate.event_id : null;
+}
+
 async function handleIntegration(
   request: FastifyRequest,
   reply: FastifyReply,
   service: string,
 ): Promise<void> {
   await randomDelay(MAX_LATENCY_MS);
+
+  const forcedOutcome = parseForcedOutcome(request.body);
+
+  if (forcedOutcome === "success") {
+    request.log.info({ service }, "Forced success outcome");
+    await reply
+      .code(200)
+      .send({ ok: true, service, processedAt: new Date().toISOString() });
+    return;
+  }
+
+  if (forcedOutcome === "dlq") {
+    request.log.error({ service }, "Forced DLQ outcome (always failing)");
+    await reply
+      .code(500)
+      .send({ error: "Forced Internal Server Error", service });
+    return;
+  }
+
+  if (forcedOutcome === "transient_failure") {
+    const eventId = getEventId(request.body);
+    if (eventId) {
+      const key = `${service}:${eventId}`;
+      const attempts = (transientFailureAttemptsByKey.get(key) ?? 0) + 1;
+      transientFailureAttemptsByKey.set(key, attempts);
+
+      if (attempts <= 2) {
+        request.log.warn({ service, attempts }, "Forced transient failure");
+        await reply
+          .code(500)
+          .send({ error: "Forced transient failure", service, attempts });
+        return;
+      }
+    }
+
+    request.log.info({ service }, "Forced transient scenario recovered");
+    await reply
+      .code(200)
+      .send({ ok: true, service, processedAt: new Date().toISOString() });
+    return;
+  }
 
   if (shouldRateLimit()) {
     request.log.warn({ service }, 'Rate limit triggered');
